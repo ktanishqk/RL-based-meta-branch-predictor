@@ -5,7 +5,7 @@
 #include <cstdlib>
 #include <vector>
 
-#include "address.h" // ChampSim address type
+#include "../../inc/address.h" // ChampSim address type
 #include "modules.h" // (if needed by your predictors)
 
 // Include the four branch predictors
