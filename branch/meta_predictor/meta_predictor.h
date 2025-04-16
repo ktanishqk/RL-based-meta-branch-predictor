@@ -22,6 +22,7 @@ public:
     EpsilonGreedyBandit(int num_arms, double epsilon = 0.05);
     int select_arm();
     void update(int arm, double reward);
+    void set_epsilon(double new_epsilon);  // <-- New setter
 
 private:
     int num_arms_;
@@ -50,7 +51,7 @@ private:
     // List of available predictors.
     std::vector<champsim::modules::branch_predictor*> arms_;
 
-    // Epsilon value (saved for creating buckets).
+    // Epsilon value used to initialize bandit buckets.
     double epsilon_;
 
     // Map from IP bucket (ip.bits % 64) to its own bandit.
@@ -59,6 +60,11 @@ private:
     // Remember the chosen predictor and its prediction for update.
     int last_chosen_arm_;
     bool last_prediction_;
+
+    // New fields for epsilon decay.
+    size_t branch_count_;
+    double initial_epsilon_;
+    double decay_rate_;
 };
 
 #endif // META_PREDICTOR_H

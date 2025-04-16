@@ -41,13 +41,20 @@ void EpsilonGreedyBandit::update(int arm, double reward) {
     values_[arm] = ((n - 1) / n) * values_[arm] + (reward / n);
 }
 
+void EpsilonGreedyBandit::set_epsilon(double new_epsilon) {
+    epsilon_ = new_epsilon;
+}
+
 //---------------------------------------------------------------------------
 // meta_predictor implementation
 
 meta_predictor::meta_predictor(double epsilon)
     : epsilon_(epsilon),
       last_chosen_arm_(-1),
-      last_prediction_(false)
+      last_prediction_(false),
+      branch_count_(0),
+      initial_epsilon_(epsilon),
+      decay_rate_(0.0001)  // Adjust this decay rate as needed.
 {
     // Create one instance of each predictor.
     arms_.push_back(new perceptron(nullptr));
@@ -121,4 +128,16 @@ void meta_predictor::last_branch_result(champsim::address ip,
     // Determine IP bucket using ip.bits % 64.
     size_t bucket = static_cast<size_t>(ip.bits) % 64;
     bandit_buckets_.at(bucket).update(last_chosen_arm_, reward);
+
+    // Increment our branch counter.
+    branch_count_++;
+
+    // Compute new epsilon via exponential decay.
+    double new_epsilon = initial_epsilon_ * exp(-decay_rate_ * branch_count_);
+    epsilon_ = new_epsilon;  // update meta_predictor's epsilon too
+
+    // Update all bucket bandits with the new epsilon.
+    for (auto& kv : bandit_buckets_) {
+        kv.second.set_epsilon(new_epsilon);
+    }
 }
