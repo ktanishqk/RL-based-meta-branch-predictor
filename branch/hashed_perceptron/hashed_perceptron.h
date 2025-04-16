@@ -11,7 +11,7 @@
 #include "msl/bits.h"
 #include "msl/fwcounter.h"
 
-class hashed_perceptron : champsim::modules::branch_predictor
+class hashed_perceptron : public champsim::modules::branch_predictor
 {
   using bits = champsim::data::bits;                 // saves some typing
   constexpr static std::size_t NTABLES = 16;         // this many tables

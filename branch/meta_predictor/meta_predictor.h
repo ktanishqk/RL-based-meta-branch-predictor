@@ -5,47 +5,52 @@
 #include <cstdlib>
 #include <vector>
 
-#include "../../inc/address.h" // ChampSim address type
-#include "modules.h" // (if needed by your predictors)
+#include "../../inc/address.h"
+#include "modules.h"
 
-// Include the four branch predictors
-#include "branch/bimodal/bimodal.h"
-#include "branch/gshare/gshare.h"
-#include "branch/hashed_perceptron/hashed_perceptron.h"
-#include "branch/perceptron/perceptron.h"
+#include "../bimodal/bimodal.h"
+#include "../gshare/gshare.h"
+#include "../hashed_perceptron/hashed_perceptron.h"
+#include "../perceptron/perceptron.h"
 
-// Epsilon-Greedy bandit to select from available predictors.
-class EpsilonGreedyBandit
-{
+// Epsilon-Greedy bandit that selects from available predictors.
+class EpsilonGreedyBandit : champsim::modules::branch_predictor {
 public:
-  EpsilonGreedyBandit(int num_arms, double epsilon = 0.1);
-  int select_arm();
-  void update(int arm, double reward);
+    EpsilonGreedyBandit(int num_arms, double epsilon = 0.1);
+    int select_arm();
+    void update(int arm, double reward);
 
 private:
-  int num_arms_;
-  double epsilon_;
-  std::vector<int> counts_;
-  std::vector<double> values_;
+    int num_arms_;
+    double epsilon_;
+    std::vector<int> counts_;
+    std::vector<double> values_;
 };
 
-class MetaPredictor // removed inheritance from champsim::modules::branch_predictor
-{
+class MetaPredictor {
 public:
-  MetaPredictor();
+    MetaPredictor();
+    ~MetaPredictor();
 
-  // Functions to predict branch and update after outcome.
-  bool predict_branch(champsim::address ip);
-  void last_branch_result(champsim::address ip, champsim::address branch_target, bool taken, uint8_t branch_type);
+    // Predicts a branch outcome.
+    bool predict_branch(champsim::address ip);
+
+    // Updates the chosen predictor with the branch outcome.
+    void last_branch_result(champsim::address ip,
+                            champsim::address branch_target,
+                            bool taken,
+                            uint8_t branch_type);
 
 private:
-  // List of available predictors.
-  std::vector<void*> arms_; // we'll cast to appropriate predictor type when used
-  EpsilonGreedyBandit bandit_;
+    // List of available predictors.
+    std::vector<champsim::modules::branch_predictor*> arms_;
 
-  // Save the arm chosen (and its prediction) to update after branch outcome.
-  int last_chosen_arm_;
-  bool last_prediction_;
+    // Epsilon-greedy bandit for predictor selection.
+    EpsilonGreedyBandit bandit_;
+
+    // Remember the chosen predictor and its prediction for update.
+    int last_chosen_arm_;
+    bool last_prediction_;
 };
 
-#endif
+#endif // META_PREDICTOR_H

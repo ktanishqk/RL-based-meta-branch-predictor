@@ -7,7 +7,7 @@
 #include "modules.h"
 #include "msl/fwcounter.h"
 
-class bimodal : champsim::modules::branch_predictor
+class bimodal : public champsim::modules::branch_predictor
 {
   [[nodiscard]] static constexpr auto hash(champsim::address ip) { return ip.to<unsigned long>() % PRIME; }
 
