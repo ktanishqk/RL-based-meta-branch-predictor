@@ -1,75 +1,77 @@
-#include "meta_predictor.h"
+#include "meta_predictor_ucb.h"
 #include <algorithm>
-#include <random>
-#include <iostream> // Optional for debug
+#include <cmath>
+#include <iostream>
 
-// --- EpsilonGreedyBandit Implementation ---
+// --- UCB1Bandit Implementation ---
 
-EpsilonGreedyBandit::EpsilonGreedyBandit(int num_arms, double initial_epsilon, double decay_rate)
+UCB1Bandit::UCB1Bandit(int num_arms)
     : num_arms_(num_arms),
-      initial_epsilon_(initial_epsilon),
-      decay_rate_(decay_rate),
-      epsilon_(initial_epsilon),
-      total_updates_(0),
       counts_(num_arms, 0),
-      values_(num_arms, 0.0) {}
+      values_(num_arms, 0.0),
+      total_pulls_(0) {}
 
-int EpsilonGreedyBandit::select_arm() {
-    for (int i = 0; i < num_arms_; ++i) {
-        if (counts_[i] == 0)
-            return i;
-    }
+double UCB1Bandit::ucb_score(int arm) const {
+    // If arm hasn't been pulled, prioritize it with a high score
+    if (counts_[arm] == 0)
+        return std::numeric_limits<double>::max();
+    
+    // UCB1 formula: average reward + sqrt(2 * log(total_pulls) / arm_pulls)
+    double exploitation = values_[arm];
+    double exploration = std::sqrt(2.0 * std::log(static_cast<double>(total_pulls_)) / counts_[arm]);
+    
+    return exploitation + exploration;
+}
 
-    double r = static_cast<double>(rand()) / RAND_MAX;
-    if (r < epsilon_) {
-        return rand() % num_arms_;
-    }
-
-    double best_value = -1e9;
+int UCB1Bandit::select_arm() {
+    // Find arm with highest UCB score
+    double best_score = -std::numeric_limits<double>::max();
     int best_arm = 0;
+    
     for (int i = 0; i < num_arms_; ++i) {
-        if (values_[i] > best_value) {
-            best_value = values_[i];
+        double score = ucb_score(i);
+        if (score > best_score) {
+            best_score = score;
             best_arm = i;
         }
     }
+    
     return best_arm;
 }
 
-void EpsilonGreedyBandit::update(int arm, double reward) {
-    counts_[arm] += 1;
-    total_updates_++;
-    double n = counts_[arm];
-    values_[arm] = ((n - 1) / n) * values_[arm] + (reward / n);
+void UCB1Bandit::update(int arm, double reward) {
+    // Update counts and values for the selected arm
+    counts_[arm]++;
+    total_pulls_++;
+    
+    // Incremental average update
+    double n = static_cast<double>(counts_[arm]);
+    values_[arm] = ((n - 1.0) / n) * values_[arm] + (reward / n);
 }
 
-void EpsilonGreedyBandit::step() {
-    epsilon_ = initial_epsilon_ * exp(-decay_rate_ * static_cast<double>(total_updates_));
-}
+// --- meta_predictor_ucb Implementation ---
 
-// --- meta_predictor Implementation ---
-
-meta_predictor::meta_predictor(double initial_epsilon, double decay_rate)
+meta_predictor_ucb::meta_predictor_ucb()
     : last_chosen_arm_(-1),
       last_prediction_(false),
-      num_buckets_(64),
-      initial_epsilon_(initial_epsilon),
-      decay_rate_(decay_rate)
+      num_buckets_(64)
 {
+    // Initialize branch predictors
     arms_.push_back(new perceptron(nullptr));
     arms_.push_back(new bimodal(nullptr));
     arms_.push_back(new gshare(nullptr));
     arms_.push_back(new hashed_perceptron(nullptr));
 
+    // Initialize UCB bandits for each bucket
     for (size_t i = 0; i < num_buckets_; ++i) {
-        bandit_buckets_.emplace(i, EpsilonGreedyBandit(4, initial_epsilon_, decay_rate_));
+        bandit_buckets_.emplace(i, UCB1Bandit(4)); // 4 branch predictor arms
     }
 }
 
-meta_predictor::meta_predictor(O3_CPU* cpu, double initial_epsilon, double decay_rate)
-    : meta_predictor(initial_epsilon, decay_rate) {}
+meta_predictor_ucb::meta_predictor_ucb(O3_CPU* cpu)
+    : meta_predictor_ucb() {}
 
-bool meta_predictor::predict_branch(champsim::address ip) {
+bool meta_predictor_ucb::predict_branch(champsim::address ip) {
     size_t raw_bucket = static_cast<uint64_t>(ip.bits) % num_buckets_;
     maybe_expand_buckets(raw_bucket);
 
@@ -98,7 +100,8 @@ bool meta_predictor::predict_branch(champsim::address ip) {
     return prediction;
 }
 
-void meta_predictor::last_branch_result(champsim::address ip, champsim::address branch_target, bool taken, uint8_t branch_type) {
+void meta_predictor_ucb::last_branch_result(champsim::address ip, champsim::address branch_target, bool taken, uint8_t branch_type) {
+    // Update the chosen branch predictor
     switch (last_chosen_arm_) {
     case 0:
         static_cast<perceptron*>(arms_[0])->last_branch_result(ip, branch_target, taken, branch_type);
@@ -119,16 +122,16 @@ void meta_predictor::last_branch_result(champsim::address ip, champsim::address 
     size_t raw_bucket = static_cast<uint64_t>(ip.bits) % num_buckets_;
     maybe_expand_buckets(raw_bucket);
 
+    // Update UCB bandit with reward (1.0 for correct prediction, -0.5 for wrong prediction)
     double reward = (last_prediction_ == taken) ? 1.0 : -0.5;
     bandit_buckets_.at(raw_bucket).update(last_chosen_arm_, reward);
-    bandit_buckets_.at(raw_bucket).step();
 }
 
-void meta_predictor::maybe_expand_buckets(size_t bucket) {
+void meta_predictor_ucb::maybe_expand_buckets(size_t bucket) {
     if (bucket >= num_buckets_) {
         size_t new_size = std::max(num_buckets_ * 2, bucket + 1);
         for (size_t i = num_buckets_; i < new_size; ++i) {
-            bandit_buckets_.emplace(i, EpsilonGreedyBandit(4, initial_epsilon_, decay_rate_));
+            bandit_buckets_.emplace(i, UCB1Bandit(4));
         }
         num_buckets_ = new_size;
     }

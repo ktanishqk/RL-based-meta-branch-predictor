@@ -1,5 +1,5 @@
-#ifndef META_PREDICTOR_H
-#define META_PREDICTOR_H
+#ifndef META_PREDICTOR_UCB_H
+#define META_PREDICTOR_UCB_H
 
 #include <cstdint>
 #include <cstdlib>
@@ -16,30 +16,27 @@
 #include "../hashed_perceptron/hashed_perceptron.h"
 #include "../perceptron/perceptron.h"
 
-// --- Helper class to manage bandits per bucket ---
-class EpsilonGreedyBandit {
+// --- Helper class to manage UCB1 algorithm per bucket ---
+class UCB1Bandit {
 public:
-    EpsilonGreedyBandit(int num_arms, double initial_epsilon = 0.05, double decay_rate = 0.0001);
+    UCB1Bandit(int num_arms);
 
     int select_arm();
     void update(int arm, double reward);
-    void step(); // decay epsilon
 
 private:
     int num_arms_;
-    double initial_epsilon_;
-    double decay_rate_;
-    double epsilon_;
-    size_t total_updates_;
-
-    std::vector<int> counts_;
-    std::vector<double> values_;
+    std::vector<int> counts_;            // Number of times each arm was pulled
+    std::vector<double> values_;         // Average reward for each arm
+    uint64_t total_pulls_;               // Total number of arm pulls
+    
+    double ucb_score(int arm) const;     // Calculate UCB score for an arm
 };
 
-class meta_predictor {
+class meta_predictor_ucb {
 public:
-    meta_predictor(double initial_epsilon = 0.05, double decay_rate = 0.0001);
-    meta_predictor(O3_CPU* cpu, double initial_epsilon = 0.05, double decay_rate = 0.0001);
+    meta_predictor_ucb();
+    meta_predictor_ucb(O3_CPU* cpu);
 
     bool predict_branch(champsim::address ip);
     void last_branch_result(champsim::address ip,
@@ -51,14 +48,12 @@ private:
     void maybe_expand_buckets(size_t bucket);
 
     std::vector<champsim::modules::branch_predictor*> arms_;
-    std::unordered_map<size_t, EpsilonGreedyBandit> bandit_buckets_;
+    std::unordered_map<size_t, UCB1Bandit> bandit_buckets_;
 
     int last_chosen_arm_;
     bool last_prediction_;
 
     size_t num_buckets_;
-    double initial_epsilon_;
-    double decay_rate_;
 };
 
-#endif // META_PREDICTOR_H
+#endif // META_PREDICTOR_UCB_H
