@@ -1,5 +1,3 @@
-// meta_predictor.h (updated with dynamic bucket grow)
-
 #ifndef META_PREDICTOR_H
 #define META_PREDICTOR_H
 
@@ -18,14 +16,14 @@
 #include "../hashed_perceptron/hashed_perceptron.h"
 #include "../perceptron/perceptron.h"
 
-// Epsilon-Greedy bandit that selects from available predictors.
-class EpsilonGreedyBandit : public champsim::modules::branch_predictor {
+// --- Helper class to manage bandits per bucket ---
+class EpsilonGreedyBandit {
 public:
     EpsilonGreedyBandit(int num_arms, double initial_epsilon = 0.05, double decay_rate = 0.0001);
 
     int select_arm();
     void update(int arm, double reward);
-    void step();
+    void step(); // decay epsilon
 
 private:
     int num_arms_;
@@ -55,7 +53,7 @@ private:
     std::vector<champsim::modules::branch_predictor*> arms_;
     std::unordered_map<size_t, EpsilonGreedyBandit> bandit_buckets_;
 
-    size_t last_chosen_arm_;
+    int last_chosen_arm_;
     bool last_prediction_;
 
     size_t num_buckets_;

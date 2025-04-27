@@ -1,11 +1,9 @@
-// meta_predictor.cc (updated dynamic bucket grow)
-
 #include "meta_predictor.h"
 #include <algorithm>
 #include <random>
-#include <iostream> // optional debug
+#include <iostream> // Optional for debug
 
-// ===================== EpsilonGreedyBandit Implementation =====================
+// --- EpsilonGreedyBandit Implementation ---
 
 EpsilonGreedyBandit::EpsilonGreedyBandit(int num_arms, double initial_epsilon, double decay_rate)
     : num_arms_(num_arms),
@@ -17,21 +15,16 @@ EpsilonGreedyBandit::EpsilonGreedyBandit(int num_arms, double initial_epsilon, d
       values_(num_arms, 0.0) {}
 
 int EpsilonGreedyBandit::select_arm() {
-    int total_counts = std::accumulate(counts_.begin(), counts_.end(), 0);
-
-    // Force initial exploration
     for (int i = 0; i < num_arms_; ++i) {
         if (counts_[i] == 0)
             return i;
     }
 
-    // Epsilon-Greedy: Random exploration
     double r = static_cast<double>(rand()) / RAND_MAX;
     if (r < epsilon_) {
         return rand() % num_arms_;
     }
 
-    // Otherwise pick best arm
     double best_value = -1e9;
     int best_arm = 0;
     for (int i = 0; i < num_arms_; ++i) {
@@ -51,10 +44,10 @@ void EpsilonGreedyBandit::update(int arm, double reward) {
 }
 
 void EpsilonGreedyBandit::step() {
-    epsilon_ = initial_epsilon_ * exp(-decay_rate_ * total_updates_);
+    epsilon_ = initial_epsilon_ * exp(-decay_rate_ * static_cast<double>(total_updates_));
 }
 
-// ===================== meta_predictor Implementation =====================
+// --- meta_predictor Implementation ---
 
 meta_predictor::meta_predictor(double initial_epsilon, double decay_rate)
     : last_chosen_arm_(-1),
@@ -77,7 +70,7 @@ meta_predictor::meta_predictor(O3_CPU* cpu, double initial_epsilon, double decay
     : meta_predictor(initial_epsilon, decay_rate) {}
 
 bool meta_predictor::predict_branch(champsim::address ip) {
-    size_t raw_bucket = ip.bits % num_buckets_;
+    size_t raw_bucket = static_cast<uint64_t>(ip.bits) % num_buckets_;
     maybe_expand_buckets(raw_bucket);
 
     last_chosen_arm_ = bandit_buckets_.at(raw_bucket).select_arm();
@@ -123,7 +116,7 @@ void meta_predictor::last_branch_result(champsim::address ip, champsim::address 
         break;
     }
 
-    size_t raw_bucket = ip.bits % num_buckets_;
+    size_t raw_bucket = static_cast<uint64_t>(ip.bits) % num_buckets_;
     maybe_expand_buckets(raw_bucket);
 
     double reward = (last_prediction_ == taken) ? 1.0 : -0.5;
