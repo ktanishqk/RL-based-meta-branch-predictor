@@ -1,33 +1,42 @@
+// meta_predictor.cc (updated dynamic bucket grow)
+
 #include "meta_predictor.h"
-#include <cassert>
-#include <cstdlib>
-#include <cmath>
-#include <numeric>
+#include <algorithm>
+#include <random>
+#include <iostream> // optional debug
 
-//---------------------------------------------------------------------------
-// EpsilonGreedyBandit implementation
+// ===================== EpsilonGreedyBandit Implementation =====================
 
-EpsilonGreedyBandit::EpsilonGreedyBandit(int num_arms, double epsilon)
-    : branch_predictor(nullptr),
-      num_arms_(num_arms),
-      epsilon_(epsilon),
+EpsilonGreedyBandit::EpsilonGreedyBandit(int num_arms, double initial_epsilon, double decay_rate)
+    : num_arms_(num_arms),
+      initial_epsilon_(initial_epsilon),
+      decay_rate_(decay_rate),
+      epsilon_(initial_epsilon),
+      total_updates_(0),
       counts_(num_arms, 0),
-      values_(num_arms, 0.0)
-{
-}
+      values_(num_arms, 0.0) {}
 
 int EpsilonGreedyBandit::select_arm() {
     int total_counts = std::accumulate(counts_.begin(), counts_.end(), 0);
-    if (total_counts < num_arms_) return total_counts; // Force trying each arm once
 
+    // Force initial exploration
+    for (int i = 0; i < num_arms_; ++i) {
+        if (counts_[i] == 0)
+            return i;
+    }
+
+    // Epsilon-Greedy: Random exploration
+    double r = static_cast<double>(rand()) / RAND_MAX;
+    if (r < epsilon_) {
+        return rand() % num_arms_;
+    }
+
+    // Otherwise pick best arm
     double best_value = -1e9;
     int best_arm = 0;
     for (int i = 0; i < num_arms_; ++i) {
-        double avg = values_[i];
-        double confidence = sqrt(2 * log(total_counts) / counts_[i]);
-        double ucb = avg + confidence;
-        if (ucb > best_value) {
-            best_value = ucb;
+        if (values_[i] > best_value) {
+            best_value = values_[i];
             best_arm = i;
         }
     }
@@ -35,52 +44,44 @@ int EpsilonGreedyBandit::select_arm() {
 }
 
 void EpsilonGreedyBandit::update(int arm, double reward) {
-    assert(arm >= 0 && arm < num_arms_);
     counts_[arm] += 1;
+    total_updates_++;
     double n = counts_[arm];
     values_[arm] = ((n - 1) / n) * values_[arm] + (reward / n);
 }
 
-void EpsilonGreedyBandit::set_epsilon(double new_epsilon) {
-    epsilon_ = new_epsilon;
+void EpsilonGreedyBandit::step() {
+    epsilon_ = initial_epsilon_ * exp(-decay_rate_ * total_updates_);
 }
 
-//---------------------------------------------------------------------------
-// meta_predictor implementation
+// ===================== meta_predictor Implementation =====================
 
-meta_predictor::meta_predictor(double epsilon)
-    : epsilon_(epsilon),
-      last_chosen_arm_(-1),
+meta_predictor::meta_predictor(double initial_epsilon, double decay_rate)
+    : last_chosen_arm_(-1),
       last_prediction_(false),
-      branch_count_(0),
-      initial_epsilon_(epsilon),
-      decay_rate_(0.0001)  // Adjust this decay rate as needed.
+      num_buckets_(64),
+      initial_epsilon_(initial_epsilon),
+      decay_rate_(decay_rate)
 {
-    // Create one instance of each predictor.
     arms_.push_back(new perceptron(nullptr));
     arms_.push_back(new bimodal(nullptr));
     arms_.push_back(new gshare(nullptr));
     arms_.push_back(new hashed_perceptron(nullptr));
 
-    // Pre-create 64 bandit buckets for IP bucket values 0...63.
-    for (size_t i = 0; i < 64; ++i) {
-        bandit_buckets_.emplace(i, EpsilonGreedyBandit(4, epsilon_));
+    for (size_t i = 0; i < num_buckets_; ++i) {
+        bandit_buckets_.emplace(i, EpsilonGreedyBandit(4, initial_epsilon_, decay_rate_));
     }
 }
 
-meta_predictor::meta_predictor(O3_CPU* cpu, double epsilon) : meta_predictor(epsilon) {
-    // Optionally use the 'cpu' pointer if needed.
-}
-
-meta_predictor::meta_predictor(O3_CPU* cpu) : meta_predictor(cpu, 0.05) {
-    // Uses a default epsilon of 0.05.
-}
+meta_predictor::meta_predictor(O3_CPU* cpu, double initial_epsilon, double decay_rate)
+    : meta_predictor(initial_epsilon, decay_rate) {}
 
 bool meta_predictor::predict_branch(champsim::address ip) {
-    // Determine IP bucket using ip.bits % 64.
-    size_t bucket = static_cast<size_t>(ip.bits) % 64;
-    // Use the appropriate bandit for this IP bucket.
-    last_chosen_arm_ = bandit_buckets_.at(bucket).select_arm();
+    size_t raw_bucket = ip.bits % num_buckets_;
+    maybe_expand_buckets(raw_bucket);
+
+    last_chosen_arm_ = bandit_buckets_.at(raw_bucket).select_arm();
+
     bool prediction = false;
     switch (last_chosen_arm_) {
     case 0:
@@ -99,15 +100,12 @@ bool meta_predictor::predict_branch(champsim::address ip) {
         prediction = false;
         break;
     }
+
     last_prediction_ = prediction;
     return prediction;
 }
 
-void meta_predictor::last_branch_result(champsim::address ip,
-                                        champsim::address branch_target,
-                                        bool taken,
-                                        uint8_t branch_type) {
-    // Dispatch the update to the chosen predictor.
+void meta_predictor::last_branch_result(champsim::address ip, champsim::address branch_target, bool taken, uint8_t branch_type) {
     switch (last_chosen_arm_) {
     case 0:
         static_cast<perceptron*>(arms_[0])->last_branch_result(ip, branch_target, taken, branch_type);
@@ -124,20 +122,21 @@ void meta_predictor::last_branch_result(champsim::address ip,
     default:
         break;
     }
+
+    size_t raw_bucket = ip.bits % num_buckets_;
+    maybe_expand_buckets(raw_bucket);
+
     double reward = (last_prediction_ == taken) ? 1.0 : -0.5;
-    // Determine IP bucket using ip.bits % 64.
-    size_t bucket = static_cast<size_t>(ip.bits) % 64;
-    bandit_buckets_.at(bucket).update(last_chosen_arm_, reward);
+    bandit_buckets_.at(raw_bucket).update(last_chosen_arm_, reward);
+    bandit_buckets_.at(raw_bucket).step();
+}
 
-    // Increment our branch counter.
-    branch_count_++;
-
-    // Compute new epsilon via exponential decay.
-    double new_epsilon = initial_epsilon_ * exp(-decay_rate_ * branch_count_);
-    epsilon_ = new_epsilon;  // update meta_predictor's epsilon too
-
-    // Update all bucket bandits with the new epsilon.
-    for (auto& kv : bandit_buckets_) {
-        kv.second.set_epsilon(new_epsilon);
+void meta_predictor::maybe_expand_buckets(size_t bucket) {
+    if (bucket >= num_buckets_) {
+        size_t new_size = std::max(num_buckets_ * 2, bucket + 1);
+        for (size_t i = num_buckets_; i < new_size; ++i) {
+            bandit_buckets_.emplace(i, EpsilonGreedyBandit(4, initial_epsilon_, decay_rate_));
+        }
+        num_buckets_ = new_size;
     }
 }

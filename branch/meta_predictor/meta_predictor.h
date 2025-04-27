@@ -1,3 +1,5 @@
+// meta_predictor.h (updated with dynamic bucket grow)
+
 #ifndef META_PREDICTOR_H
 #define META_PREDICTOR_H
 
@@ -19,50 +21,44 @@
 // Epsilon-Greedy bandit that selects from available predictors.
 class EpsilonGreedyBandit : public champsim::modules::branch_predictor {
 public:
-    EpsilonGreedyBandit(int num_arms, double epsilon = 0.05);
+    EpsilonGreedyBandit(int num_arms, double initial_epsilon = 0.05, double decay_rate = 0.0001);
+
     int select_arm();
     void update(int arm, double reward);
-    void set_epsilon(double new_epsilon);  // <-- New setter
+    void step();
 
 private:
     int num_arms_;
+    double initial_epsilon_;
+    double decay_rate_;
     double epsilon_;
+    size_t total_updates_;
+
     std::vector<int> counts_;
     std::vector<double> values_;
 };
 
 class meta_predictor {
 public:
-    // New constructor with adjustable epsilon.
-    meta_predictor(double epsilon = 0.05);
-    meta_predictor(O3_CPU* cpu, double epsilon);
-    meta_predictor(O3_CPU* cpu);
-    
-    // Predicts a branch outcome.
-    bool predict_branch(champsim::address ip);
+    meta_predictor(double initial_epsilon = 0.05, double decay_rate = 0.0001);
+    meta_predictor(O3_CPU* cpu, double initial_epsilon = 0.05, double decay_rate = 0.0001);
 
-    // Updates the chosen predictor with the branch outcome.
+    bool predict_branch(champsim::address ip);
     void last_branch_result(champsim::address ip,
                             champsim::address branch_target,
                             bool taken,
                             uint8_t branch_type);
 
 private:
-    // List of available predictors.
+    void maybe_expand_buckets(size_t bucket);
+
     std::vector<champsim::modules::branch_predictor*> arms_;
-
-    // Epsilon value used to initialize bandit buckets.
-    double epsilon_;
-
-    // Map from IP bucket (ip.bits % 64) to its own bandit.
     std::unordered_map<size_t, EpsilonGreedyBandit> bandit_buckets_;
 
-    // Remember the chosen predictor and its prediction for update.
-    int last_chosen_arm_;
+    size_t last_chosen_arm_;
     bool last_prediction_;
 
-    // New fields for epsilon decay.
-    size_t branch_count_;
+    size_t num_buckets_;
     double initial_epsilon_;
     double decay_rate_;
 };
