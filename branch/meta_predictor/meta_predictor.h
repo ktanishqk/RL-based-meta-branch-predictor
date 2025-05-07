@@ -15,6 +15,9 @@
 #include "../gshare/gshare.h"
 #include "../hashed_perceptron/hashed_perceptron.h"
 #include "../perceptron/perceptron.h"
+#include "../tage/tage.h"
+#include "../loop/loop.h"
+
 
 // --- Epsilon-Greedy Bandit per bucket ---
 class EpsilonGreedyBandit {

@@ -49,6 +49,8 @@ meta_predictor_ucb::meta_predictor_ucb()
     arms_.push_back(new bimodal(nullptr));
     arms_.push_back(new gshare(nullptr));
     arms_.push_back(new hashed_perceptron(nullptr));
+    arms_.push_back(new tage(nullptr));
+    arms_.push_back(new loop(nullptr));
 }
 
 meta_predictor_ucb::meta_predictor_ucb(O3_CPU* cpu)
@@ -58,7 +60,7 @@ bool meta_predictor_ucb::predict_branch(champsim::address ip) {
     size_t bucket = static_cast<uint64_t>(ip.bits);
 
     if (bandit_buckets_.find(bucket) == bandit_buckets_.end()) {
-        bandit_buckets_.emplace(bucket, UCB1Bandit(4));
+        bandit_buckets_.emplace(bucket, UCB1Bandit(6));
     }
 
     last_chosen_arm_ = bandit_buckets_.at(bucket).select_arm();
@@ -76,6 +78,12 @@ bool meta_predictor_ucb::predict_branch(champsim::address ip) {
         break;
     case 3:
         prediction = static_cast<hashed_perceptron*>(arms_[3])->predict_branch(ip);
+        break;
+    case 4:
+        prediction = static_cast<tage*>(arms_[4])->predict_branch(ip);
+        break;
+    case 5:
+        prediction = static_cast<loop*>(arms_[5])->predict_branch(ip);
         break;
     default:
         prediction = false;
@@ -100,6 +108,12 @@ void meta_predictor_ucb::last_branch_result(champsim::address ip, champsim::addr
     case 3:
         static_cast<hashed_perceptron*>(arms_[3])->last_branch_result(ip, branch_target, taken, branch_type);
         break;
+    case 4:
+        static_cast<tage*>(arms_[4])->last_branch_result(ip, branch_target, taken, branch_type);
+        break;
+    case 5:
+        static_cast<loop*>(arms_[5])->last_branch_result(ip, branch_target, taken, branch_type);
+        break;
     default:
         break;
     }
@@ -107,7 +121,7 @@ void meta_predictor_ucb::last_branch_result(champsim::address ip, champsim::addr
     size_t bucket = static_cast<uint64_t>(ip.bits);
 
     if (bandit_buckets_.find(bucket) == bandit_buckets_.end()) {
-        bandit_buckets_.emplace(bucket, UCB1Bandit(4));
+        bandit_buckets_.emplace(bucket, UCB1Bandit(6));
     }
 
     double reward = (last_prediction_ == taken) ? 1.0 : -0.5;
