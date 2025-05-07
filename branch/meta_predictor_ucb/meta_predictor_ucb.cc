@@ -12,22 +12,16 @@ UCB1Bandit::UCB1Bandit(int num_arms)
       total_pulls_(0) {}
 
 double UCB1Bandit::ucb_score(int arm) const {
-    // If arm hasn't been pulled, prioritize it with a high score
     if (counts_[arm] == 0)
         return std::numeric_limits<double>::max();
-    
-    // UCB1 formula: average reward + sqrt(2 * log(total_pulls) / arm_pulls)
     double exploitation = values_[arm];
     double exploration = std::sqrt(2.0 * std::log(static_cast<double>(total_pulls_)) / counts_[arm]);
-    
     return exploitation + exploration;
 }
 
 int UCB1Bandit::select_arm() {
-    // Find arm with highest UCB score
     double best_score = -std::numeric_limits<double>::max();
     int best_arm = 0;
-    
     for (int i = 0; i < num_arms_; ++i) {
         double score = ucb_score(i);
         if (score > best_score) {
@@ -35,16 +29,12 @@ int UCB1Bandit::select_arm() {
             best_arm = i;
         }
     }
-    
     return best_arm;
 }
 
 void UCB1Bandit::update(int arm, double reward) {
-    // Update counts and values for the selected arm
     counts_[arm]++;
     total_pulls_++;
-    
-    // Incremental average update
     double n = static_cast<double>(counts_[arm]);
     values_[arm] = ((n - 1.0) / n) * values_[arm] + (reward / n);
 }
@@ -53,29 +43,25 @@ void UCB1Bandit::update(int arm, double reward) {
 
 meta_predictor_ucb::meta_predictor_ucb()
     : last_chosen_arm_(-1),
-      last_prediction_(false),
-      num_buckets_(64)
+      last_prediction_(false)
 {
-    // Initialize branch predictors
     arms_.push_back(new perceptron(nullptr));
     arms_.push_back(new bimodal(nullptr));
     arms_.push_back(new gshare(nullptr));
     arms_.push_back(new hashed_perceptron(nullptr));
-
-    // Initialize UCB bandits for each bucket
-    for (size_t i = 0; i < num_buckets_; ++i) {
-        bandit_buckets_.emplace(i, UCB1Bandit(4)); // 4 branch predictor arms
-    }
 }
 
 meta_predictor_ucb::meta_predictor_ucb(O3_CPU* cpu)
     : meta_predictor_ucb() {}
 
 bool meta_predictor_ucb::predict_branch(champsim::address ip) {
-    size_t raw_bucket = static_cast<uint64_t>(ip.bits) % num_buckets_;
-    maybe_expand_buckets(raw_bucket);
+    size_t bucket = static_cast<uint64_t>(ip.bits);
 
-    last_chosen_arm_ = bandit_buckets_.at(raw_bucket).select_arm();
+    if (bandit_buckets_.find(bucket) == bandit_buckets_.end()) {
+        bandit_buckets_.emplace(bucket, UCB1Bandit(4));
+    }
+
+    last_chosen_arm_ = bandit_buckets_.at(bucket).select_arm();
 
     bool prediction = false;
     switch (last_chosen_arm_) {
@@ -101,7 +87,6 @@ bool meta_predictor_ucb::predict_branch(champsim::address ip) {
 }
 
 void meta_predictor_ucb::last_branch_result(champsim::address ip, champsim::address branch_target, bool taken, uint8_t branch_type) {
-    // Update the chosen branch predictor
     switch (last_chosen_arm_) {
     case 0:
         static_cast<perceptron*>(arms_[0])->last_branch_result(ip, branch_target, taken, branch_type);
@@ -119,20 +104,12 @@ void meta_predictor_ucb::last_branch_result(champsim::address ip, champsim::addr
         break;
     }
 
-    size_t raw_bucket = static_cast<uint64_t>(ip.bits) % num_buckets_;
-    maybe_expand_buckets(raw_bucket);
+    size_t bucket = static_cast<uint64_t>(ip.bits);
 
-    // Update UCB bandit with reward (1.0 for correct prediction, -0.5 for wrong prediction)
-    double reward = (last_prediction_ == taken) ? 1.0 : -0.5;
-    bandit_buckets_.at(raw_bucket).update(last_chosen_arm_, reward);
-}
-
-void meta_predictor_ucb::maybe_expand_buckets(size_t bucket) {
-    if (bucket >= num_buckets_) {
-        size_t new_size = std::max(num_buckets_ * 2, bucket + 1);
-        for (size_t i = num_buckets_; i < new_size; ++i) {
-            bandit_buckets_.emplace(i, UCB1Bandit(4));
-        }
-        num_buckets_ = new_size;
+    if (bandit_buckets_.find(bucket) == bandit_buckets_.end()) {
+        bandit_buckets_.emplace(bucket, UCB1Bandit(4));
     }
+
+    double reward = (last_prediction_ == taken) ? 1.0 : -0.5;
+    bandit_buckets_.at(bucket).update(last_chosen_arm_, reward);
 }
