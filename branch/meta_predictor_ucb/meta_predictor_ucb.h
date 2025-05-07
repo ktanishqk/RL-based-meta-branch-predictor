@@ -16,7 +16,7 @@
 #include "../hashed_perceptron/hashed_perceptron.h"
 #include "../perceptron/perceptron.h"
 
-// --- Helper class to manage UCB1 algorithm per bucket ---
+// --- UCB1 Bandit per bucket ---
 class UCB1Bandit {
 public:
     UCB1Bandit(int num_arms);
@@ -26,11 +26,11 @@ public:
 
 private:
     int num_arms_;
-    std::vector<int> counts_;            // Number of times each arm was pulled
-    std::vector<double> values_;         // Average reward for each arm
-    uint64_t total_pulls_;               // Total number of arm pulls
-    
-    double ucb_score(int arm) const;     // Calculate UCB score for an arm
+    std::vector<int> counts_;
+    std::vector<double> values_;
+    int total_pulls_;
+
+    double ucb_score(int arm) const;
 };
 
 class meta_predictor_ucb {
@@ -45,15 +45,11 @@ public:
                             uint8_t branch_type);
 
 private:
-    void maybe_expand_buckets(size_t bucket);
-
     std::vector<champsim::modules::branch_predictor*> arms_;
     std::unordered_map<size_t, UCB1Bandit> bandit_buckets_;
 
     int last_chosen_arm_;
     bool last_prediction_;
-
-    size_t num_buckets_;
 };
 
 #endif // META_PREDICTOR_UCB_H
