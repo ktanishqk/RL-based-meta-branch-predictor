@@ -60,9 +60,11 @@ meta_predictor::meta_predictor(double initial_epsilon, double decay_rate)
     arms_.push_back(new bimodal(nullptr));
     arms_.push_back(new gshare(nullptr));
     arms_.push_back(new hashed_perceptron(nullptr));
+    arms_.push_back(new tage(nullptr)); // Add TAGE predictor
+    arms_.push_back(new loop(nullptr)); // Add Loop predictor
 
     for (size_t i = 0; i < num_buckets_; ++i) {
-        bandit_buckets_.emplace(i, EpsilonGreedyBandit(4, initial_epsilon_, decay_rate_));
+        bandit_buckets_.emplace(i, EpsilonGreedyBandit(6, initial_epsilon_, decay_rate_)); // Updated to 6 arms
     }
 }
 
@@ -89,6 +91,12 @@ bool meta_predictor::predict_branch(champsim::address ip) {
     case 3:
         prediction = static_cast<hashed_perceptron*>(arms_[3])->predict_branch(ip);
         break;
+    case 4:
+        prediction = static_cast<tage*>(arms_[4])->predict_branch(ip);
+        break;
+    case 5:
+        prediction = static_cast<loop*>(arms_[5])->predict_branch(ip);
+        break;
     default:
         prediction = false;
         break;
@@ -112,6 +120,12 @@ void meta_predictor::last_branch_result(champsim::address ip, champsim::address 
     case 3:
         static_cast<hashed_perceptron*>(arms_[3])->last_branch_result(ip, branch_target, taken, branch_type);
         break;
+    case 4:
+        static_cast<tage*>(arms_[4])->last_branch_result(ip, branch_target, taken, branch_type);
+        break;
+    case 5:
+        static_cast<loop*>(arms_[5])->last_branch_result(ip, branch_target, taken, branch_type);
+        break;
     default:
         break;
     }
@@ -128,7 +142,7 @@ void meta_predictor::maybe_expand_buckets(size_t bucket) {
     if (bucket >= num_buckets_) {
         size_t new_size = std::max(num_buckets_ * 2, bucket + 1);
         for (size_t i = num_buckets_; i < new_size; ++i) {
-            bandit_buckets_.emplace(i, EpsilonGreedyBandit(4, initial_epsilon_, decay_rate_));
+            bandit_buckets_.emplace(i, EpsilonGreedyBandit(6, initial_epsilon_, decay_rate_)); // Updated to 6 arms
         }
         num_buckets_ = new_size;
     }
