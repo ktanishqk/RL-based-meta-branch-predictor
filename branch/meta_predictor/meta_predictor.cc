@@ -1,10 +1,7 @@
 #include "meta_predictor.h"
 #include <algorithm>
 #include <random>
-#include <iostream> 
-#include <cassert>
-#include <cmath>
-#include <numeric>
+#include <iostream> // Optional for debug
 
 // --- EpsilonGreedyBandit Implementation ---
 
@@ -22,10 +19,12 @@ int EpsilonGreedyBandit::select_arm() {
         if (counts_[i] == 0)
             return i;
     }
+
     double r = static_cast<double>(rand()) / RAND_MAX;
     if (r < epsilon_) {
         return rand() % num_arms_;
     }
+
     double best_value = -1e9;
     int best_arm = 0;
     for (int i = 0; i < num_arms_; ++i) {
@@ -53,6 +52,7 @@ void EpsilonGreedyBandit::step() {
 meta_predictor::meta_predictor(double initial_epsilon, double decay_rate)
     : last_chosen_arm_(-1),
       last_prediction_(false),
+      num_buckets_(64),
       initial_epsilon_(initial_epsilon),
       decay_rate_(decay_rate)
 {
@@ -60,19 +60,20 @@ meta_predictor::meta_predictor(double initial_epsilon, double decay_rate)
     arms_.push_back(new bimodal(nullptr));
     arms_.push_back(new gshare(nullptr));
     arms_.push_back(new hashed_perceptron(nullptr));
+
+    for (size_t i = 0; i < num_buckets_; ++i) {
+        bandit_buckets_.emplace(i, EpsilonGreedyBandit(4, initial_epsilon_, decay_rate_));
+    }
 }
 
 meta_predictor::meta_predictor(O3_CPU* cpu, double initial_epsilon, double decay_rate)
     : meta_predictor(initial_epsilon, decay_rate) {}
 
 bool meta_predictor::predict_branch(champsim::address ip) {
-    size_t bucket = static_cast<uint64_t>(ip.bits);
+    size_t raw_bucket = static_cast<uint64_t>(ip.bits) % num_buckets_;
+    maybe_expand_buckets(raw_bucket);
 
-    if (bandit_buckets_.find(bucket) == bandit_buckets_.end()) {
-        bandit_buckets_.emplace(bucket, EpsilonGreedyBandit(4, initial_epsilon_, decay_rate_));
-    }
-
-    last_chosen_arm_ = bandit_buckets_.at(bucket).select_arm();
+    last_chosen_arm_ = bandit_buckets_.at(raw_bucket).select_arm();
 
     bool prediction = false;
     switch (last_chosen_arm_) {
@@ -115,13 +116,20 @@ void meta_predictor::last_branch_result(champsim::address ip, champsim::address 
         break;
     }
 
-    size_t bucket = static_cast<uint64_t>(ip.bits);
-
-    if (bandit_buckets_.find(bucket) == bandit_buckets_.end()) {
-        bandit_buckets_.emplace(bucket, EpsilonGreedyBandit(4, initial_epsilon_, decay_rate_));
-    }
+    size_t raw_bucket = static_cast<uint64_t>(ip.bits) % num_buckets_;
+    maybe_expand_buckets(raw_bucket);
 
     double reward = (last_prediction_ == taken) ? 1.0 : -0.5;
-    bandit_buckets_.at(bucket).update(last_chosen_arm_, reward);
-    bandit_buckets_.at(bucket).step();
+    bandit_buckets_.at(raw_bucket).update(last_chosen_arm_, reward);
+    bandit_buckets_.at(raw_bucket).step();
+}
+
+void meta_predictor::maybe_expand_buckets(size_t bucket) {
+    if (bucket >= num_buckets_) {
+        size_t new_size = std::max(num_buckets_ * 2, bucket + 1);
+        for (size_t i = num_buckets_; i < new_size; ++i) {
+            bandit_buckets_.emplace(i, EpsilonGreedyBandit(4, initial_epsilon_, decay_rate_));
+        }
+        num_buckets_ = new_size;
+    }
 }
