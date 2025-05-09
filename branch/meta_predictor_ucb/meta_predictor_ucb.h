@@ -15,7 +15,8 @@
 #include "../gshare/gshare.h"
 #include "../hashed_perceptron/hashed_perceptron.h"
 #include "../perceptron/perceptron.h"
-
+#include "../tage/tage.h"
+#include "../loop/loop.h"
 // --- UCB1 Bandit per bucket ---
 class UCB1Bandit {
 public:

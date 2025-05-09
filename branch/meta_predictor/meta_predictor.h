@@ -18,7 +18,8 @@
 #include "../tage/tage.h"
 #include "../loop/loop.h"
 
-// --- Helper class to manage bandits per bucket ---
+
+// --- Epsilon-Greedy Bandit per bucket ---
 class EpsilonGreedyBandit {
 public:
     EpsilonGreedyBandit(int num_arms, double initial_epsilon = 0.05, double decay_rate = 0.0001);
@@ -50,15 +51,12 @@ public:
                             uint8_t branch_type);
 
 private:
-    void maybe_expand_buckets(size_t bucket);
-
     std::vector<champsim::modules::branch_predictor*> arms_;
     std::unordered_map<size_t, EpsilonGreedyBandit> bandit_buckets_;
 
     int last_chosen_arm_;
     bool last_prediction_;
 
-    size_t num_buckets_;
     double initial_epsilon_;
     double decay_rate_;
 };
